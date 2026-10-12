@@ -1,0 +1,11 @@
+/build*/
+/.deps/
+/artifacts/
+/test-runs/
+/dist/
+__pycache__/
+*.pyc
+*.log
+*.dmp
+.pytest_cache/
+.hypothesis/
