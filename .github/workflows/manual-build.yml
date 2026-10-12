@@ -1,0 +1,81 @@
+name: Manual build
+
+# Runs ONLY when you click "Run workflow" in the Actions tab.
+# No push, pull_request, tag or schedule triggers.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Checkout Dear ImGui v1.92.6
+        uses: actions/checkout@v4
+        with:
+          repository: ocornut/imgui
+          ref: 6ded5230d043aa32c755e65c910c2af5002fb9f9
+          path: .deps/imgui
+          persist-credentials: false
+
+      - name: Checkout MinHook v1.3.4
+        uses: actions/checkout@v4
+        with:
+          repository: TsudaKageyu/minhook
+          ref: c3fcafdc10146beb5919319d0683e44e3c30d537
+          path: .deps/minhook
+          persist-credentials: false
+
+      - name: Install build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build g++-mingw-w64-i686-win32 python3-venv
+          python3 -m venv .deps/packaging
+          .deps/packaging/bin/pip install pefile==2024.8.26
+
+      - name: Resolve version
+        id: version
+        run: echo "tag=v$(tr -d '\r\n' < VERSION)" >> "$GITHUB_OUTPUT"
+
+      - name: Configure (Windows x86, Release)
+        run: |
+          cmake -S . -B build-win32 -G Ninja \
+            -DCMAKE_TOOLCHAIN_FILE=cmake/mingw-x86.cmake \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DIMGUI_SOURCE_DIR="$PWD/.deps/imgui" \
+            -DMINHOOK_SOURCE_DIR="$PWD/.deps/minhook"
+
+      - name: Build
+        run: cmake --build build-win32 --parallel 2
+
+      - name: Package
+        env:
+          RELEASE_TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          .deps/packaging/bin/python tools/build_release.py \
+            --build build-win32 --output dist --tag "$RELEASE_TAG"
+
+      - name: Verify package
+        env:
+          RELEASE_TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          .deps/packaging/bin/python tools/check_release.py \
+            "dist/Isaac-LAN-$RELEASE_TAG-windows-x86.zip" --tag "$RELEASE_TAG"
+
+      - name: Upload build
+        uses: actions/upload-artifact@v4
+        with:
+          name: Isaac-LAN-${{ steps.version.outputs.tag }}-windows-x86
+          path: |
+            dist/*.zip
+            dist/*.sha256
+          if-no-files-found: error
+          retention-days: 14
